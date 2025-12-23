@@ -1,0 +1,59 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: nest-mysql
+    environment:
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: mysql
+      MYSQL_PASSWORD: mysql
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - '3336:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uroot', '-proot']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: nest-redis
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nest-api
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: mydb
+      DB_USERNAME: mysql
+      DB_PASSWORD: mysql
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: prod
+      STAGE: dev
+      PORT: 3000
+      DEFAULT_LIMIT: 10
+      HOST_API: http://localhost:3000/api
+      HOST: 0.0.0.0
+    ports:
+      - '3000:3000'
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
