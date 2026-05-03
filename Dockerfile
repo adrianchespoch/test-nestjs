@@ -1,29 +1,47 @@
+# syntax=docker/dockerfile:1.7
+
 # ---- deps ----
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache python3 make g++ openssl
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 
 # ---- build ----
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
+RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN corepack enable && pnpm build
-
-RUN ls -la dist/migrations && test -f dist/migrations/*.js
+RUN corepack enable \
+ && pnpm prisma generate \
+ && pnpm build \
+ && pnpm prune --prod
 
 # ---- runtime ----
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache wget tini openssl \
+ && addgroup -S app && adduser -S app -G app
 
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/dist ./dist
+COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/prisma ./prisma
+COPY --from=build --chown=app:app /app/package.json ./
+
+ENV NODE_ENV=production \
+    NODE_OPTIONS="--enable-source-maps" \
+    PORT=3000
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "node ./node_modules/typeorm/cli.js -d dist/config/typeorm.datasource.js migration:run && node dist/main.js"]
+USER app
+
+ENTRYPOINT ["/sbin/tini", "--"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://localhost:3000/api/health/live || exit 1
+
+# Migrations corren al boot — para deploys con orquestador, mover a init container.
+CMD ["sh", "-c", "node ./node_modules/.bin/prisma migrate deploy && node dist/main.js"]

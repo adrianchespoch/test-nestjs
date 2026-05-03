@@ -1,27 +1,26 @@
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: nest-mysql
+  postgres:
+    image: postgres:17-alpine
+    container_name: skeleton-postgres
     environment:
-      MYSQL_DATABASE: mydb
-      MYSQL_USER: mysql
-      MYSQL_PASSWORD: mysql
-      MYSQL_ROOT_PASSWORD: root
+      POSTGRES_DB: ${POSTGRES_DB:-skeleton}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - '3336:3306'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uroot', '-proot']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-skeleton}']
       interval: 5s
       timeout: 3s
       retries: 20
 
   redis:
     image: redis:7-alpine
-    container_name: nest-redis
+    container_name: skeleton-redis
     ports:
-      - '6380:6379'
+      - '${REDIS_PORT:-6379}:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -32,28 +31,39 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: nest-api
+    container_name: skeleton-api
     environment:
-      DB_HOST: mysql
-      DB_PORT: 3306
-      DB_NAME: mydb
-      DB_USERNAME: mysql
-      DB_PASSWORD: mysql
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-skeleton}?schema=public
       REDIS_URL: redis://redis:6379
-      NODE_ENV: prod
-      STAGE: dev
+      REDIS_REQUIRED: 'true'
       PORT: 3000
-      DEFAULT_LIMIT: 10
-      HOST_API: http://localhost:3000/api
       HOST: 0.0.0.0
+      APP_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3001,http://localhost:5173
+      COOKIE_SECRET: ${COOKIE_SECRET:-dev-cookie-secret-change-me-32-chars-min}
+      COOKIE_DOMAIN: localhost
+      COOKIE_SAMESITE: Strict
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      JWT_ACCESS_TTL_SEC: 900
+      JWT_REFRESH_TTL_SEC: 2592000
+      LOG_LEVEL: info
+      OTEL_SERVICE_NAME: nestjs-skeleton
     ports:
-      - '3000:3000'
+      - '${API_PORT:-3000}:3000'
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health/live']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
-  mysql_data:
+  postgres_data:

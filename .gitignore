@@ -14,10 +14,23 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+.agents
+.claude
 
 # Tests
 /coverage
 /.nyc_output
+
+# TS / build artefacts
+*.tsbuildinfo
+.eslintcache
+
+# Husky internal cache (auto-generated)
+.husky/_/
+
+# Local prisma test artefacts
+prisma/*.db
+prisma/*.db-journal
 
 # IDEs and editors
 /.idea

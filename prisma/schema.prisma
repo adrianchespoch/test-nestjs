@@ -1,0 +1,163 @@
+// Prisma schema — see AGENTS/database/01-prisma-setup.md
+
+generator client {
+  provider     = "prisma-client-js"
+  moduleFormat = "cjs"
+  // Prisma 7 ships ESM by default; "cjs" required for NestJS up to v11.
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================
+// Auth — Users
+// ============================
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  email               String    @unique @db.VarChar(254)
+  name                String    @db.VarChar(120)
+  passwordHash        String?   @db.VarChar(255)
+  emailVerifiedAt     DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  isActive            Boolean   @default(true)
+  mustChangePassword  Boolean   @default(false)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  roles            UserRole[]
+  sessions         Session[]
+  refreshTokens    RefreshToken[]
+  accounts         AccountProvider[]
+  oneTimeTokens    OneTimeToken[]
+
+  @@index([deletedAt])
+}
+
+// ============================
+// Auth — OAuth providers (Google, GitHub)
+// ============================
+
+model AccountProvider {
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @db.Uuid
+  provider              String   @db.VarChar(40)
+  providerAccountId     String   @db.VarChar(255)
+  accessTokenEncrypted  String?  @db.Text
+  refreshTokenEncrypted String?  @db.Text
+  createdAt             DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// ============================
+// Auth — Sessions & refresh tokens
+// ============================
+
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  userAgent String?   @db.VarChar(512)
+  ip        String?   @db.VarChar(45)
+  createdAt DateTime  @default(now())
+  lastSeen  DateTime  @default(now())
+  revokedAt DateTime?
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId, revokedAt])
+}
+
+model RefreshToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  hash            String    @unique @db.VarChar(255)
+  familyId        String    @db.Uuid
+  parentId        String?   @db.Uuid
+  sessionId       String    @db.Uuid
+  userId          String    @db.Uuid
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  reuseDetectedAt DateTime?
+  createdAt       DateTime  @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+// ============================
+// Auth — One-time tokens (email verification, password reset)
+// ============================
+
+model OneTimeToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  hash      String    @unique @db.VarChar(255)
+  purpose   String    @db.VarChar(40)
+  userId    String    @db.Uuid
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+}
+
+// ============================
+// RBAC — Roles & permissions
+// ============================
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(60)
+  description String?  @db.VarChar(255)
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  action      String   @db.VarChar(40)
+  subject     String   @db.VarChar(60)
+  conditions  Json?
+  description String?  @db.VarChar(255)
+
+  roles RolePermission[]
+
+  @@unique([action, subject])
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
