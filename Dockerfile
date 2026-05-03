@@ -1,25 +1,28 @@
 # syntax=docker/dockerfile:1.7
 
 # ---- deps ----
-FROM node:24-alpine AS deps
+FROM node:22.22.2-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++ openssl
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN corepack enable \
+ && corepack prepare pnpm@9.15.0 --activate \
+ && pnpm install --frozen-lockfile
 
 # ---- build ----
-FROM node:24-alpine AS build
+FROM node:22.22.2-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN corepack enable \
+ && corepack prepare pnpm@9.15.0 --activate \
  && pnpm prisma generate \
  && pnpm build \
  && pnpm prune --prod
 
 # ---- runtime ----
-FROM node:24-alpine AS runtime
+FROM node:22.22.2-alpine AS runtime
 WORKDIR /app
 
 RUN apk add --no-cache wget tini openssl \
