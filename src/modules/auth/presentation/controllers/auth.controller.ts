@@ -12,17 +12,20 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  ApiAcceptedResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ApiErrorDto } from '../../../../shared/presentation/dtos/api-error.dto';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { LoginUseCase } from '../../application/use-cases/login.use-case';
@@ -40,6 +43,11 @@ import {
   ResendVerificationDto,
 } from '../dtos/password-reset.dto';
 import { RegisterDto, RegisterResponseDto } from '../dtos/register.dto';
+import {
+  AcceptedResponseDto,
+  EmailVerifiedResponseDto,
+  PasswordUpdatedResponseDto,
+} from '../dtos/auth-responses.dto';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 const REFRESH_COOKIE = 'refresh';
@@ -63,9 +71,9 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ default: { ttl: 3_600_000, limit: 5 } }) // 5 / hora / IP
   @ApiOperation({ summary: 'Register a new user with email + password' })
-  @ApiCreatedResponse({ type: RegisterResponseDto })
-  @ApiBadRequestResponse({ description: 'Validation error' })
-  @ApiConflictResponse({ description: 'Email already exists' })
+  @ApiCreatedResponse({ type: RegisterResponseDto, description: 'Usuario creado.' })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: 'Validation error' })
+  @ApiConflictResponse({ type: ApiErrorDto, description: 'Email already exists' })
   async register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
     const result = await this.registerUseCase.execute(dto);
     if (result.isErr()) throw result.error; // GlobalExceptionFilter mapea a HTTP
@@ -75,10 +83,13 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 600_000, limit: 5 } }) // 5 / 10min / IP
-  @ApiOperation({ summary: 'Login with email + password' })
-  @ApiOkResponse({ type: LoginResponseDto })
-  @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
-  @ApiForbiddenResponse({ description: 'Account locked / email not verified' })
+  @ApiOperation({
+    summary: 'Login with email + password',
+    description: 'Setea cookie `refresh` HttpOnly firmada (path `/api/auth`).',
+  })
+  @ApiOkResponse({ type: LoginResponseDto, description: 'Login OK; cookie refresh seteada.' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Invalid credentials' })
+  @ApiForbiddenResponse({ type: ApiErrorDto, description: 'Account locked / email not verified' })
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -104,9 +115,12 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
-  @ApiOperation({ summary: 'Rotate refresh token + issue new access token' })
-  @ApiOkResponse({ type: LoginResponseDto })
-  @ApiUnauthorizedResponse({ description: 'Invalid or expired refresh token' })
+  @ApiOperation({
+    summary: 'Rotate refresh token + issue new access token',
+    description: 'Lee la cookie `refresh`. Reuso de token revocado → revoca toda la familia.',
+  })
+  @ApiOkResponse({ type: LoginResponseDto, description: 'Token rotado; nueva cookie refresh.' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Invalid or expired refresh token' })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -131,6 +145,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Revoke current refresh token + clear cookie (idempotent)' })
+  @ApiNoContentResponse({ description: 'Sesión revocada (o no había sesión).' })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
     const raw = (req.signedCookies?.[REFRESH_COOKIE] ??
       req.cookies?.[REFRESH_COOKIE] ??
@@ -144,6 +159,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Revoke all sessions across devices' })
+  @ApiNoContentResponse({ description: 'Todas las sesiones revocadas.' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Falta o inválido el access token.' })
   logoutAll(@Res({ passthrough: true }) res: Response): void {
     // Implementación completa en M3.x — por ahora limpia cookie del browser actual.
     this.clearRefreshCookie(res);
@@ -153,9 +170,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({ summary: 'Verify email via one-time token' })
-  @ApiQuery({ name: 'token', required: true })
-  @ApiOkResponse()
-  @ApiBadRequestResponse({ description: 'Token invalid or expired' })
+  @ApiQuery({
+    name: 'token',
+    required: true,
+    example: 'a3f1c9e2b7d84605f1a2b3c4d5e6f7081920a1b2c3d4e5f60718293a4b5c6d7e',
+  })
+  @ApiOkResponse({ type: EmailVerifiedResponseDto, description: 'Email verificado.' })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: 'Token invalid or expired' })
   async verifyEmail(@Query('token') token: string): Promise<{ verified: true }> {
     const result = await this.verifyEmailUseCase.execute({ rawToken: token });
     if (result.isErr()) throw result.error;
@@ -166,7 +187,10 @@ export class AuthController {
   @HttpCode(HttpStatus.ACCEPTED)
   @Throttle({ default: { ttl: 60_000, limit: 1 } }) // 1 / minuto / IP
   @ApiOperation({ summary: 'Resend verification email (idempotent, no leak)' })
-  @ApiOkResponse({ description: 'Always returns 202 to avoid email enumeration' })
+  @ApiAcceptedResponse({
+    type: AcceptedResponseDto,
+    description: 'Always returns 202 to avoid email enumeration',
+  })
   async resendVerification(@Body() dto: ResendVerificationDto): Promise<{ accepted: true }> {
     await this.resendVerificationUseCase.execute({ email: dto.email });
     return { accepted: true };
@@ -176,7 +200,10 @@ export class AuthController {
   @HttpCode(HttpStatus.ACCEPTED)
   @Throttle({ default: { ttl: 600_000, limit: 5 } })
   @ApiOperation({ summary: 'Request password reset email (no leak of existence)' })
-  @ApiOkResponse({ description: 'Always returns 202; email sent only if account exists' })
+  @ApiAcceptedResponse({
+    type: AcceptedResponseDto,
+    description: 'Always returns 202; email sent only if account exists',
+  })
   async requestPasswordReset(@Body() dto: RequestPasswordResetDto): Promise<{ accepted: true }> {
     await this.requestPasswordResetUseCase.execute({ email: dto.email });
     return { accepted: true };
@@ -186,8 +213,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 600_000, limit: 5 } })
   @ApiOperation({ summary: 'Confirm password reset with token + new password' })
-  @ApiOkResponse({ description: 'Password updated; all sessions invalidated' })
-  @ApiBadRequestResponse({ description: 'Token invalid/expired or password too weak' })
+  @ApiOkResponse({
+    type: PasswordUpdatedResponseDto,
+    description: 'Password updated; all sessions invalidated',
+  })
+  @ApiBadRequestResponse({
+    type: ApiErrorDto,
+    description: 'Token invalid/expired or password too weak',
+  })
   async confirmPasswordReset(
     @Body() dto: ConfirmPasswordResetDto,
     @Res({ passthrough: true }) res: Response,

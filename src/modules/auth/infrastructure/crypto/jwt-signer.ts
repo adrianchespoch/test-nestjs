@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { generateKeyPairSync } from 'node:crypto';
@@ -9,18 +9,19 @@ import type {
 } from '../../domain/ports/jwt-signer.port';
 
 @Injectable()
-export class JwtSigner implements IJwtSigner, OnModuleInit {
+export class JwtSigner implements IJwtSigner {
   private readonly logger = new Logger(JwtSigner.name);
-  private privateKey!: string;
-  private publicKey!: string;
-  private accessTtlSec!: number;
+  private readonly privateKey: string;
+  private readonly publicKey: string;
+  private readonly accessTtlSec: number;
 
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService,
     private readonly jwt: JwtService,
-  ) {}
-
-  onModuleInit(): void {
+  ) {
+    // Resuelto en el constructor (no onModuleInit): JwtStrategy lee
+    // getPublicKey() en su propio constructor y Nest corre todos los
+    // constructores antes que cualquier hook de lifecycle.
     this.accessTtlSec = this.config.get<number>('JWT_ACCESS_TTL_SEC') ?? 900;
     let priv = this.config.get<string>('JWT_PRIVATE_KEY') ?? '';
     let pub = this.config.get<string>('JWT_PUBLIC_KEY') ?? '';

@@ -12,8 +12,19 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { ApiErrorDto } from '../../../../shared/presentation/dtos/api-error.dto';
+import { OAuthCallbackResponseDto } from '../dtos/auth-responses.dto';
 import {
   OAUTH_STATE_STORE,
   type IOAuthStateStore,
@@ -43,7 +54,20 @@ export class OAuthController {
    * Por simplicidad pre-genera el state y luego deja que Passport haga redirect.
    */
   @Get(':provider')
-  @ApiOperation({ summary: 'Start OAuth flow with the named provider (google|github)' })
+  @ApiOperation({
+    summary: 'Start OAuth flow with the named provider',
+    description:
+      'Redirige (302) al provider. Si llega un access JWT, el userId queda en el state para linking.',
+  })
+  @ApiParam({ name: 'provider', enum: PROVIDERS, example: 'google' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect a la pantalla de consentimiento del provider.',
+  })
+  @ApiBadRequestResponse({
+    type: ApiErrorDto,
+    description: 'Provider inválido (no google|github).',
+  })
   async start(
     @Param('provider') provider: Provider,
     @Req() req: Request & { user?: { userId?: string } },
@@ -64,6 +88,9 @@ export class OAuthController {
   @UseGuards(AuthGuard('google'))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'OAuth Google callback' })
+  @ApiQuery({ name: 'state', required: true, description: 'State CSRF emitido en /auth/google.' })
+  @ApiOkResponse({ type: OAuthCallbackResponseDto, description: 'Login/link OK; cookie refresh.' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'State inválido o email faltante.' })
   async googleCallback(
     @Req() req: Request & { user?: OAuthProfile },
     @Query('state') state: string,
@@ -76,6 +103,9 @@ export class OAuthController {
   @UseGuards(AuthGuard('github'))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'OAuth GitHub callback' })
+  @ApiQuery({ name: 'state', required: true, description: 'State CSRF emitido en /auth/github.' })
+  @ApiOkResponse({ type: OAuthCallbackResponseDto, description: 'Login/link OK; cookie refresh.' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'State inválido o email faltante.' })
   async githubCallback(
     @Req() req: Request & { user?: OAuthProfile },
     @Query('state') state: string,

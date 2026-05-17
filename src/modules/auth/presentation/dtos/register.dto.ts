@@ -13,7 +13,7 @@ export class RegisterDto {
   @MaxLength(120)
   name!: string;
 
-  @ApiProperty({ minLength: 12, maxLength: 128 })
+  @ApiProperty({ example: 'S3curePass!2026', minLength: 12, maxLength: 128 })
   @IsString()
   @MinLength(12)
   @MaxLength(128)
@@ -21,6 +21,6 @@ export class RegisterDto {
 }
 
 export class RegisterResponseDto {
-  @ApiProperty()
+  @ApiProperty({ example: '7c9e6679-7425-40de-944b-e07fc1f90ae7', format: 'uuid' })
   userId!: string;
 }

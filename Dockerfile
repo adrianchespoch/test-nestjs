@@ -31,6 +31,7 @@ RUN apk add --no-cache wget tini openssl \
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/prisma ./prisma
+COPY --from=build --chown=app:app /app/prisma.config.ts ./
 COPY --from=build --chown=app:app /app/package.json ./
 
 ENV NODE_ENV=production \
@@ -44,7 +45,7 @@ USER app
 ENTRYPOINT ["/sbin/tini", "--"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health/live || exit 1
+  CMD wget -qO- http://localhost:3000/api/v1/health/live || exit 1
 
 # Migrations corren al boot — para deploys con orquestador, mover a init container.
-CMD ["sh", "-c", "node ./node_modules/.bin/prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main.js"]

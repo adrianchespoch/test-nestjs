@@ -1,8 +1,16 @@
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor() {
+    // Prisma 7: el `url` no vive en schema.prisma (ver prisma.config.ts) y el
+    // cliente generado ya no acepta `datasources`/`datasourceUrl` — la conexión
+    // se inyecta vía driver adapter. Joi garantiza DATABASE_URL al boot.
+    super({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+  }
+
   async onModuleInit(): Promise<void> {
     await this.$connect();
   }

@@ -27,13 +27,28 @@ services:
       timeout: 3s
       retries: 20
 
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: skeleton-mailpit
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8025/readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: skeleton-api
     environment:
-      NODE_ENV: production
+      # Stack local sobre http://localhost — no simula producción.
+      # `dev` activa el keypair RS256 efímero (sin secret manager).
+      # Para producción: NODE_ENV=production + JWT_PRIVATE_KEY/JWT_PUBLIC_KEY.
+      NODE_ENV: ${NODE_ENV:-dev}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-skeleton}?schema=public
       REDIS_URL: redis://redis:6379
       REDIS_REQUIRED: 'true'
@@ -49,6 +64,11 @@ services:
       JWT_ACCESS_TTL_SEC: 900
       JWT_REFRESH_TTL_SEC: 2592000
       LOG_LEVEL: info
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@example.com}
       OTEL_SERVICE_NAME: nestjs-skeleton
     ports:
       - '${API_PORT:-3000}:3000'
@@ -57,9 +77,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailhog:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health/live']
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/v1/health/live']
       interval: 30s
       timeout: 5s
       retries: 3

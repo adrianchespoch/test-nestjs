@@ -46,6 +46,7 @@ import { JwtAuthGuard } from './presentation/guards/jwt-auth.guard';
 import { GithubStrategy } from './presentation/strategies/github.strategy';
 import { GoogleStrategy } from './presentation/strategies/google.strategy';
 import { JwtStrategy } from './presentation/strategies/jwt.strategy';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -95,8 +96,20 @@ import { JwtStrategy } from './presentation/strategies/jwt.strategy';
 
     // Strategies + guard
     JwtStrategy,
-    GoogleStrategy,
-    GithubStrategy,
+    // OAuth es opcional: passport-oauth2 lanza si clientID está vacío, así que
+    // solo registramos la estrategia cuando hay credenciales configuradas.
+    {
+      provide: GoogleStrategy,
+      useFactory: (config: ConfigService): GoogleStrategy | null =>
+        config.get<string>('GOOGLE_CLIENT_ID') ? new GoogleStrategy(config) : null,
+      inject: [ConfigService],
+    },
+    {
+      provide: GithubStrategy,
+      useFactory: (config: ConfigService): GithubStrategy | null =>
+        config.get<string>('GITHUB_CLIENT_ID') ? new GithubStrategy(config) : null,
+      inject: [ConfigService],
+    },
     JwtAuthGuard,
   ],
   exports: [JwtAuthGuard, JwtStrategy],
